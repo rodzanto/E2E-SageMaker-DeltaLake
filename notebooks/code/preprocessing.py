@@ -23,14 +23,18 @@ import delta_sharing
 from sklearn.compose import make_column_transformer
 
 import boto3
+from decimal import Decimal
 
 # Defining some functions for efficiently ingesting into SageMaker Feature Store...
+def remove_exponent(d):
+    return d.quantize(Decimal(1)) if d == d.to_integral() else d.normalize()
+
 def transform_row(columns, row) -> list:
     record = []
     for column in columns:
-        feature = {'FeatureName': column, 'ValueAsString': str(row[column])}
+        feature = ({'FeatureName': column, 'ValueAsString': remove_exponent(Decimal(str(row[column])))})
         # We can't ingest null value for a feature type into a feature group
-        if str(row[column]) not in ['NaN', 'NA', 'None', 'nan', 'none']:
+        if str(row.column) not in ['NaN', 'NA', 'None', 'nan', 'none']:
             record.append(feature)
     return record
 
@@ -40,7 +44,9 @@ def ingest_to_feature_store(fg, rows) -> None:
     columns = rows.columns
     for index, row in df.iterrows():
         record = transform_row(columns, row)
+        print(f'Putting record:{record}')
         response = featurestore_runtime_client.put_record(FeatureGroupName=fg, Record=record)
+        print(f'Done with row:{index}')
         assert response['ResponseMetadata']['HTTPStatusCode'] == 200
 
 # Main...
