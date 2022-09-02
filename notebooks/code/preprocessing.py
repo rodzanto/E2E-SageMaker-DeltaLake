@@ -25,9 +25,7 @@ from sklearn.compose import make_column_transformer
 import boto3
 
 # Defining some functions for efficiently ingesting into SageMaker Feature Store...
-def transform_row(row) -> list:
-    #columns = list(row.asDict())
-    columns = list(row)
+def transform_row(columns, row) -> list:
     record = []
     for column in columns:
         feature = {'FeatureName': column, 'ValueAsString': str(row[column])}
@@ -39,9 +37,9 @@ def transform_row(row) -> list:
 def ingest_to_feature_store(fg, rows) -> None:
     session = boto3.session.Session(region_name='eu-west-1')
     featurestore_runtime_client = session.client(service_name='sagemaker-featurestore-runtime')
-    rows = list(rows)
-    for _, row in enumerate(rows):
-        record = transform_row(row)
+    columns = rows.columns
+    for index, row in df.iterrows():
+        record = transform_row(columns, row)
         response = featurestore_runtime_client.put_record(FeatureGroupName=fg, Record=record)
         assert response['ResponseMetadata']['HTTPStatusCode'] == 200
 
