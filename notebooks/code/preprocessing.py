@@ -13,31 +13,44 @@
 
 from __future__ import print_function
 
-# Import generic functions...
 import argparse
 import os
 import warnings
-
 import pandas as pd
 import numpy as np
 
-import sys
-import subprocess
-
-# Install and import dependencies...
-subprocess.check_call([
-    sys.executable, "-m", "pip", "install", "-r",
-    "/opt/ml/processing/input/code/my_package/requirements.txt",
-])
 import delta_sharing
-
-# Import SKLearn libraries...
 from sklearn.compose import make_column_transformer
 
+import boto3
+
+# Defining some functions for efficiently ingesting into SageMaker Feature Store...
+def transform_row(row) -> list:
+    #columns = list(row.asDict())
+    columns = list(row)
+    record = []
+    for column in columns:
+        feature = {'FeatureName': column, 'ValueAsString': str(row[column])}
+        # We can't ingest null value for a feature type into a feature group
+        if str(row[column]) not in ['NaN', 'NA', 'None', 'nan', 'none']:
+            record.append(feature)
+    return record
+
+def ingest_to_feature_store(fg, rows) -> None:
+    session = boto3.session.Session(region_name='eu-west-1')
+    featurestore_runtime_client = session.client(service_name='sagemaker-featurestore-runtime')
+    rows = list(rows)
+    for _, row in enumerate(rows):
+        record = transform_row(row)
+        response = featurestore_runtime_client.put_record(FeatureGroupName=fg, Record=record)
+        assert response['ResponseMetadata']['HTTPStatusCode'] == 200
+
+# Main...
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile-file", type=str)
     parser.add_argument("--table", type=str)
+    parser.add_argument("--feature-group", type=str)
     args, _ = parser.parse_known_args()
     print("Received arguments {}".format(args))
 
@@ -45,12 +58,7 @@ if __name__ == "__main__":
     profile_files = [os.path.join(args.profile_file, file) for file in os.listdir(args.profile_file)]
     if len(profile_files) == 0:
         raise ValueError(
-            (
-                "There are no files in {}.\n"
-                + "This usually indicates that the channel ({}) was incorrectly specified,\n"
-                + "the data specification in S3 was incorrectly specified or the role specified\n"
-                + "does not have permission to access the data."
-            ).format(args.profile_file, "profile-file")
+            ("There are no files in {}.\n").format(args.profile_file, "profile-file")
         )
     profile_file = profile_files[0]
     print(f'Found profile file: {profile_file}')
@@ -80,6 +88,9 @@ if __name__ == "__main__":
     # ---
     # Write processed data after transformations...
     processed_features_output_path = os.path.join("/opt/ml/processing/processed", "processed_features.csv")
-
     print("Saving processed features to {}".format(processed_features_output_path))
     pd.DataFrame(processed_features).to_csv(processed_features_output_path, header=True, index=False)
+    
+    # Ingesting the resulting data into our Feature Group...
+    print(f"Ingesting processed features into Feature Group {args.feature_group}...")
+    ingest_to_feature_store(args.feature_group, processed_features)

@@ -1,1 +1,2 @@
 delta-sharing
+boto3
