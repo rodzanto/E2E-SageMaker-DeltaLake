@@ -32,10 +32,13 @@ def remove_exponent(d):
 def transform_row(columns, row) -> list:
     record = []
     for column in columns:
-        feature = ({'FeatureName': column, 'ValueAsString': remove_exponent(Decimal(str(row[column])))})
+        feature = {'FeatureName': column, 'ValueAsString': str(remove_exponent(Decimal(str(row[column]))))}
         # We can't ingest null value for a feature type into a feature group
-        if str(row.column) not in ['NaN', 'NA', 'None', 'nan', 'none']:
+        if str(row[column]) not in ['NaN', 'NA', 'None', 'nan', 'none']:
             record.append(feature)
+    # Complete with EventTime feature
+    timestamp = {'FeatureName': 'EventTime', 'ValueAsString': str(pd.to_datetime("now").timestamp())}
+    record.append(timestamp)
     return record
 
 def ingest_to_feature_store(fg, rows) -> None:
@@ -44,9 +47,9 @@ def ingest_to_feature_store(fg, rows) -> None:
     columns = rows.columns
     for index, row in df.iterrows():
         record = transform_row(columns, row)
-        print(f'Putting record:{record}')
+        #print(f'Putting record:{record}')
         response = featurestore_runtime_client.put_record(FeatureGroupName=fg, Record=record)
-        print(f'Done with row:{index}')
+        #print(f'Done with row:{index}')
         assert response['ResponseMetadata']['HTTPStatusCode'] == 200
 
 # Main...
@@ -98,3 +101,4 @@ if __name__ == "__main__":
     # Ingesting the resulting data into our Feature Group...
     print(f"Ingesting processed features into Feature Group {args.feature_group}...")
     ingest_to_feature_store(args.feature_group, processed_features)
+    print("All done.")
